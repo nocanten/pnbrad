@@ -1,0 +1,49 @@
+#!/usr/bin/expect -f
+
+set timeout 20
+
+set PON [lindex $argv 0]
+
+spawn telnet 10.0.0.5
+
+expect "EPON login:"
+send "root\r"
+
+expect "Password:"
+send "admin\r"
+
+expect "Access Password:"
+send "admin\r"
+
+expect "EPON>"
+send "enable\r"
+
+expect "Enable Password:"
+send "admin\r"
+
+expect "EPON#"
+send "configure terminal\r"
+
+expect "EPON(config)#"
+send "epon\r"
+
+expect "EPON(epon)#"
+send "set pon $PON onu all auth-mode pass\r"
+
+expect "EPON(epon)#"
+send "exit\r"
+
+expect "EPON(config)#"
+send "exit\r"
+
+expect "EPON#"
+send "write\r"
+
+expect {
+    "success" {}
+    timeout {}
+}
+
+send "exit\r"
+
+expect eof

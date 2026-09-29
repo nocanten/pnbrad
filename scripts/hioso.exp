@@ -1,0 +1,63 @@
+#!/usr/bin/expect -f
+
+set timeout 120
+log_user 1
+
+spawn telnet 10.0.0.14
+
+expect "EPON login:"
+send "root\r"
+
+expect "Password:"
+send "admin\r"
+
+expect {
+    -re "Access Password:"
+}
+
+send "admin\r"
+
+expect "EPON>"
+send "enable\r"
+
+expect "Enable Password:"
+send "admin\r"
+
+expect "EPON#"
+send "terminal length 0\r"
+
+expect "EPON#"
+send "configure terminal\r"
+
+expect "EPON(config)#"
+send "epon\r"
+
+expect "EPON(epon)#"
+send "pon 1/1\r"
+
+expect "EPON(epon-pon-1/1)#"
+
+send "show onu all\r"
+
+while {1} {
+
+    expect {
+
+        -re "Press.*Continue" {
+            send " "
+            exp_continue
+        }
+
+        -re "Connection closed by foreign host" {
+            break
+        }
+
+        timeout {
+            break
+        }
+
+        eof {
+            break
+        }
+    }
+}

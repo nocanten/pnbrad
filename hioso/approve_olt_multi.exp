@@ -1,0 +1,53 @@
+#!/usr/bin/expect -f
+
+set timeout 20
+
+set IP       [lindex $argv 0]
+set USER     [lindex $argv 1]
+set PASS     [lindex $argv 2]
+set ENABLEPW [lindex $argv 3]
+set PON      [lindex $argv 4]
+
+spawn telnet $IP
+
+expect "login:"
+send "$USER\r"
+
+expect "Password:"
+send "$PASS\r"
+
+expect "Access Password:"
+send "$PASS\r"
+
+expect "EPON>"
+send "enable\r"
+
+expect "Enable Password:"
+send "$ENABLEPW\r"
+
+expect "EPON#"
+send "configure terminal\r"
+
+expect "EPON(config)#"
+send "epon\r"
+
+expect "EPON(epon)#"
+send "set pon $PON onu all auth-mode pass\r"
+
+expect "EPON(epon)#"
+send "exit\r"
+
+expect "EPON(config)#"
+send "exit\r"
+
+expect "EPON#"
+send "write\r"
+
+expect {
+    "Configuration file saved ok!" {}
+    timeout {}
+}
+
+send "exit\r"
+
+expect eof

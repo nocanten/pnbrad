@@ -1,0 +1,7 @@
+ 0 8 * * * cd /data/html/system && php82 cron_reminder.php >/dev/null
+ * * * * * cd /data/html/system && php82 cron.php >/dev/null
+ */5 * * * * cd /data/html/system && php82 cron_acs_sync.php >/dev/null
+ */5 * * * * cd /data/html/system/ && php cron.php
+ 0 * * * * cd /data/html/system/ && php cron.php
+ 0 7 * * * cd /data/html/system/ && php cron_reminder.php
+ */5 * * * * /root/check_telegram.sh >/dev/null 2>&1

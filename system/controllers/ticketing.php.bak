@@ -1,0 +1,624 @@
+<?php
+
+_admin();
+
+$action = isset($routes[1]) ? $routes[1] : '';
+
+switch ($action) {
+
+case 'list':
+
+    $tickets = ORM::for_table('tbl_tickets')
+        ->order_by_desc('id')
+        ->find_array();
+
+    foreach ($tickets as &$t) {
+
+        if (!empty($t['customer_id'])) {
+
+            $cust = ORM::for_table('tbl_customers')
+                ->find_one($t['customer_id']);
+
+            if ($cust) {
+                $t['fullname'] = $cust->fullname;
+                $t['pppoe_username'] = $cust->pppoe_username;
+            }
+     }
+
+     if (!empty($t['technician_id'])) {
+
+	    $tech = ORM::for_table('tbl_users')
+		->find_one($t['technician_id']);
+
+	if ($tech) {
+	    $t['technician_name'] = $tech->fullname;
+	}
+        }
+
+    }
+
+    $ui->assign('tickets', $tickets);
+
+    $ui->display('admin/ticketing/list.tpl');
+
+break;
+
+
+case 'add':
+
+        $customers = ORM::for_table('tbl_customers')
+            ->order_by_asc('fullname')
+            ->find_many();
+
+        $ui->assign('customers', $customers);
+
+        $ui->display('admin/ticketing/add.tpl');
+
+break;
+
+
+case 'add-post':
+
+    if (_post('type') == 'installation') {
+    
+        // Simpan calon pelanggan
+        $req = ORM::for_table('tbl_installation_requests')->create();
+    
+        $req->fullname  = _post('fullname');
+        $req->phone     = _post('phone');
+        $req->address   = _post('address');
+        $req->city      = _post('city');
+        $req->district  = _post('district');
+        $req->state     = _post('state');
+        $req->zip       = _post('zip');
+        $req->email     = _post('email');
+        $req->status    = 'survey';
+    
+        $req->save();
+    
+        // Simpan ticket pemasangan
+        $ticket = ORM::for_table('tbl_tickets')->create();
+    
+        $ticket->ticket_no = 'INS-' . date('YmdHis');
+        $ticket->installation_request_id = $req->id;
+        $ticket->type = 'installation';
+        $ticket->subject = _post('subject');
+        $ticket->description = _post('description');
+        $ticket->status = 'open';
+    
+        $ticket->save();
+        
+    
+    
+    } else {
+    
+        // Ticket gangguan
+        $ticket = ORM::for_table('tbl_tickets')->create();
+    
+        $ticket->ticket_no = 'TCK-' . date('YmdHis');
+        $ticket->customer_id = _post('customer_id');
+        $ticket->type = 'trouble';
+        $ticket->subject = _post('subject');
+        $ticket->description = _post('description');
+        $ticket->status = 'open';
+    
+        $ticket->save();
+    }
+    
+    r2(
+        Text::url('ticketing/list'),
+        's',
+        'Ticket berhasil dibuat'
+    );
+    
+break;
+
+
+case 'view':
+
+    $id = _req('id');
+
+    $ticket = ORM::for_table('tbl_tickets')
+        ->find_one($id);
+
+    if (!$ticket) {
+        r2(
+            Text::url('ticketing/list'),
+            'e',
+            'Ticket tidak ditemukan'
+        );
+    }
+
+    $customer = null;
+
+    if ($ticket->customer_id) {
+
+        $customer = ORM::for_table('tbl_customers')
+            ->find_one($ticket->customer_id);
+    }
+
+    $users = ORM::for_table('tbl_users')
+        ->where_in(
+            'user_type',
+            array(
+                'SuperAdmin',
+                'Admin',
+                'Agent'
+            )
+        )
+        ->order_by_asc('fullname')
+        ->find_many();
+
+    $ui->assign('ticket', $ticket);
+    $ui->assign('customer', $customer);
+    $ui->assign('users', $users);
+    
+    $plans = ORM::for_table('tbl_plans')
+        ->where('type', 'PPPOE')
+        ->where('enabled', 1)
+        ->order_by_asc('name_plan')
+        ->find_many();
+    
+    $routers = ORM::for_table('tbl_routers')
+        ->where('enabled', 1)
+        ->order_by_asc('name')
+        ->find_many();
+    
+    $ui->assign('plans', $plans);
+    $ui->assign('routers', $routers);
+
+    $ui->display('admin/ticketing/view.tpl');
+break;
+
+
+case 'assign':
+
+    $ticket = ORM::for_table('tbl_tickets')
+        ->find_one(_post('id'));
+
+    if (!$ticket) {
+
+        r2(
+            Text::url('ticketing/list'),
+            'e',
+            'Ticket tidak ditemukan'
+        );
+    }
+
+    $user = ORM::for_table('tbl_users')
+        ->find_one(_post('technician_id'));
+
+    if ($user) {
+
+        $ticket->technician_id =
+            $user->id;
+
+        $ticket->technician_name =
+            $user->fullname;
+
+        $ticket->status =
+            'assigned';
+
+        $ticket->assigned_at =
+            date('Y-m-d H:i:s');
+
+        $ticket->save();
+
+    $customer = ORM::for_table('tbl_customers')
+    	->find_one($ticket->customer_id);
+
+    if ($ticket->type == 'trouble') {
+
+        $customer = ORM::for_table('tbl_customers')
+            ->find_one($ticket->customer_id);
+    
+        if ($customer) {
+    
+            $msg = "🚨 ANTEN NET\n\n";
+            $msg .= "Laporan gangguan telah diterima.\n\n";
+            $msg .= "No Ticket : " . $ticket->ticket_no . "\n";
+            $msg .= "Pelanggan : " . $customer->fullname . "\n";
+            $msg .= "Teknisi : " . $user->fullname . "\n";
+            $msg .= "Status : Assigned";
+    
+            Message::sendWhatsapp(
+                $customer->phonenumber,
+                $msg
+            );
+    
+            Message::sendTelegram(
+                "🚨 TICKET GANGGUAN ASSIGNED\n\n" .
+                "No Ticket : " . $ticket->ticket_no . "\n" .
+                "Pelanggan : " . $customer->fullname . "\n" .
+                "PPPoE : " . $customer->pppoe_username . "\n" .
+                "Teknisi : " . $user->fullname . "\n" .
+                "Status : Assigned"
+            );
+        }
+    
+    } elseif ($ticket->type == 'installation') {
+    
+        $inst = ORM::for_table('tbl_installation_requests')
+            ->find_one($ticket->installation_request_id);
+    
+        if ($inst) {
+    
+            $msg = "📡 ANTEN NET\n\n";
+            $msg .= "Permohonan pemasangan telah dijadwalkan.\n\n";
+            $msg .= "No Ticket : " . $ticket->ticket_no . "\n";
+            $msg .= "Teknisi : " . $user->fullname . "\n";
+            $msg .= "Status : Assigned";
+    
+            Message::sendWhatsapp(
+                $inst->phone,
+                $msg
+            );
+    
+            Message::sendTelegram(
+                "📡 TICKET PEMASANGAN ASSIGNED\n\n" .
+                "No Ticket : " . $ticket->ticket_no . "\n" .
+                "Nama : " . $inst->fullname . "\n" .
+                "Teknisi : " . $user->fullname . "\n" .
+                "Status : Assigned"
+            );
+        }
+    }
+
+    }
+
+    r2(
+        Text::url('ticketing/view')
+        . '&id=' . $ticket->id,
+        's',
+        'Teknisi berhasil ditugaskan'
+    );
+
+break;
+
+case 'approve':
+    
+    $ticket = ORM::for_table('tbl_tickets')
+        ->find_one(_req('id'));
+    
+    if ($ticket) {
+    
+        $ticket->status = 'progress';
+        $ticket->save();
+    }
+    
+    r2(
+        Text::url('ticketing/view') . '&id=' . $ticket->id,
+        's',
+        'Ticket diproses'
+    );
+    
+break;
+
+case 'progress':
+    
+    $ticket = ORM::for_table('tbl_tickets')
+        ->find_one(_req('id'));
+    
+    if (!$ticket) {
+    
+        r2(
+            Text::url('ticketing/list'),
+            'e',
+            'Ticket tidak ditemukan'
+        );
+    }
+    
+    $ticket->status = 'progress';
+    
+    $ticket->save();
+    
+    $customer = ORM::for_table('tbl_customers')
+    ->find_one($ticket->customer_id);
+    
+    if ($ticket->type == 'trouble') {
+
+        $customer = ORM::for_table('tbl_customers')
+            ->find_one($ticket->customer_id);
+    
+        if ($customer) {
+    
+            $msg = "🛠 ANTEN NET\n\n";
+            $msg .= "Gangguan sedang ditangani teknisi.\n\n";
+            $msg .= "No Ticket : " . $ticket->ticket_no . "\n";
+            $msg .= "Status : Progress";
+    
+            Message::sendWhatsapp(
+                $customer->phonenumber,
+                $msg
+            );
+    
+            Message::sendTelegram(
+                "🛠 TICKET GANGGUAN PROGRESS\n\n" .
+                "No Ticket : " . $ticket->ticket_no . "\n" .
+                "Pelanggan : " . $customer->fullname . "\n" .
+                "Status : Progress"
+            );
+        }
+    
+    } elseif ($ticket->type == 'installation') {
+    
+        $inst = ORM::for_table('tbl_installation_requests')
+            ->find_one($ticket->installation_request_id);
+    
+        if ($inst) {
+    
+            $msg = "📡 ANTEN NET\n\n";
+            $msg .= "Pemasangan sedang dikerjakan teknisi.\n\n";
+            $msg .= "No Ticket : " . $ticket->ticket_no . "\n";
+            $msg .= "Status : Progress";
+    
+            Message::sendWhatsapp(
+                $inst->phone,
+                $msg
+            );
+    
+            Message::sendTelegram(
+                "📡 TICKET PEMASANGAN PROGRESS\n\n" .
+                "No Ticket : " . $ticket->ticket_no . "\n" .
+                "Nama : " . $inst->fullname . "\n" .
+                "Status : Progress"
+            );
+        }
+    }
+
+    r2(
+        Text::url('ticketing/view')
+        . '&id=' . $ticket->id,
+        's',
+        'Ticket sedang dikerjakan'
+    );
+    
+break;
+
+
+case 'close':
+    
+    $ticket = ORM::for_table('tbl_tickets')
+        ->find_one(_req('id'));
+    
+    if (!$ticket) {
+    
+        r2(
+            Text::url('ticketing/list'),
+            'e',
+            'Ticket tidak ditemukan'
+        );
+    }
+    
+    // Wajib isi catatan teknisi
+    if (empty(trim($ticket->technician_note))) {
+    
+        r2(
+            Text::url('ticketing/view') . '&id=' . $ticket->id,
+            'e',
+            'Catatan teknisi wajib diisi sebelum ticket ditutup'
+        );
+    }
+    
+    // Wajib upload foto sebelum
+    if (empty($ticket->before_photo)) {
+    
+        r2(
+            Text::url('ticketing/view') . '&id=' . $ticket->id,
+            'e',
+            'Foto sebelum pekerjaan wajib diupload'
+        );
+    }
+    
+    // Wajib upload foto sesudah
+    if (empty($ticket->after_photo)) {
+    
+        r2(
+            Text::url('ticketing/view') . '&id=' . $ticket->id,
+            'e',
+            'Foto sesudah pekerjaan wajib diupload'
+        );
+    }
+    
+    $ticket->status = 'closed';
+    
+    $ticket->save();
+    
+    // Notifikasi WA
+    $customer = null;
+    
+    if (!empty($ticket->customer_id)) {
+    
+        $customer = ORM::for_table('tbl_customers')
+            ->find_one($ticket->customer_id);
+    
+        $phone = $customer->phonenumber;
+    
+    } elseif (!empty($ticket->installation_request_id)) {
+    
+        $customer = ORM::for_table('tbl_installation_requests')
+            ->find_one($ticket->installation_request_id);
+    
+        $phone = $customer->phone;
+    }
+    
+    $phone = '';
+
+    if (!empty($ticket->customer_id)) {
+    
+        $customer = ORM::for_table('tbl_customers')
+            ->find_one($ticket->customer_id);
+    
+        if ($customer) {
+            $phone = $customer->phonenumber;
+        }
+    
+    } elseif (!empty($ticket->installation_request_id)) {
+    
+        $customer = ORM::for_table('tbl_installation_requests')
+            ->find_one($ticket->installation_request_id);
+    
+        if ($customer) {
+            $phone = $customer->phone;
+        }
+    }
+    
+    if ($ticket->type == 'trouble') {
+    
+        $msg = "✅ ANTEN NET\n\n";
+        $msg .= "Gangguan telah selesai ditangani.\n\n";
+        $msg .= "No Ticket : " . $ticket->ticket_no . "\n";
+        $msg .= "Status : Closed\n\n";
+        $msg .= "Terima kasih.";
+    
+        Message::sendWhatsapp(
+            $phone,
+            $msg
+        );
+    
+        Message::sendTelegram(
+            "✅ TICKET GANGGUAN CLOSED\n\n" .
+            "No Ticket : " . $ticket->ticket_no . "\n" .
+            "Status : Closed"
+        );
+    
+    } elseif ($ticket->type == 'installation') {
+    
+        $msg = "✅ ANTEN NET\n\n";
+        $msg .= "Pemasangan telah selesai.\n\n";
+        $msg .= "No Ticket : " . $ticket->ticket_no . "\n";
+        $msg .= "Status : Closed\n\n";
+        $msg .= "Silakan lanjut proses aktivasi pelanggan.";
+    
+        Message::sendWhatsapp(
+            $phone,
+            $msg
+        );
+    
+        Message::sendTelegram(
+            "📡 PEMASANGAN SELESAI\n\n" .
+            "No Ticket : " . $ticket->ticket_no . "\n" .
+            "Status : Closed\n\n" .
+            "Siap Aktivasi Pelanggan"
+        );
+    }
+    
+    r2(
+        Text::url('ticketing/view')
+        . '&id=' . $ticket->id,
+        's',
+        'Ticket berhasil ditutup'
+    );
+    
+break;
+
+
+
+case 'save-note':
+
+    $ticket = ORM::for_table('tbl_tickets')
+        ->find_one(_post('id'));
+
+    if ($ticket) {
+
+        $ticket->technician_note =
+            _post('technician_note');
+
+        $ticket->save();
+    }
+
+    r2(
+        Text::url('ticketing/view')
+        . '&id=' . _post('id'),
+        's',
+        'Catatan teknisi berhasil disimpan'
+    );
+
+break;
+
+case 'upload-photo':
+
+    $ticket = ORM::for_table('tbl_tickets')
+        ->find_one(_post('id'));
+
+    if (!$ticket) {
+
+        r2(
+            Text::url('ticketing/list'),
+            'e',
+            'Ticket tidak ditemukan'
+        );
+    }
+
+    $uploadDir = '/data/html/uploads/tickets/';
+
+    if (!empty($_FILES['before_photo']['name'])) {
+
+        $before =
+            time() .
+            '_before_' .
+            basename($_FILES['before_photo']['name']);
+
+        move_uploaded_file(
+            $_FILES['before_photo']['tmp_name'],
+            $uploadDir . $before
+        );
+
+        $ticket->before_photo = $before;
+    }
+
+    if (!empty($_FILES['after_photo']['name'])) {
+
+        $after =
+            time() .
+            '_after_' .
+            basename($_FILES['after_photo']['name']);
+
+        move_uploaded_file(
+            $_FILES['after_photo']['tmp_name'],
+            $uploadDir . $after
+        );
+
+        $ticket->after_photo = $after;
+    }
+
+    $ticket->save();
+
+    r2(
+        Text::url('ticketing/view')
+        . '&id=' . $ticket->id,
+        's',
+        'Foto berhasil diupload'
+    );
+
+break;
+
+    default:
+
+        $open = ORM::for_table('tbl_tickets')
+            ->where('status', 'open')
+            ->count();
+
+        $assigned = ORM::for_table('tbl_tickets')
+            ->where('status', 'assigned')
+            ->count();
+            
+        $ui->assign('assigned', $assigned);
+        
+        $progress = ORM::for_table('tbl_tickets')
+            ->where('status', 'progress')
+            ->count();
+
+        $closed = ORM::for_table('tbl_tickets')
+            ->where('status', 'closed')
+            ->count();
+
+        $ui->assign('open', $open);
+        $ui->assign('assigned', $assigned);
+        $ui->assign('progress', $progress);
+        $ui->assign('closed', $closed);
+
+        $ui->display('admin/ticketing/dashboard.tpl');
+
+    break;
+}

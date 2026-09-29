@@ -1,0 +1,912 @@
+<?php
+
+ini_set('log_errors',1);
+ini_set('error_log','/tmp/tgbot_error.log');
+
+error_reporting(E_ALL);
+ini_set('display_errors',1);
+
+$DB_HOST = "localhost";
+$DB_NAME = "pnbrad";
+$DB_USER = "pnb";
+$DB_PASS = "12345678";
+
+$BOT_TOKEN = "8820705115:AAHFwlQVSpjiUw0OXzeTrKv70y_0VbYYdFY";
+
+try {
+    $pdo = new PDO(
+        "mysql:host=$DB_HOST;dbname=$DB_NAME;charset=utf8mb4",
+        $DB_USER,
+        $DB_PASS
+    );
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (Exception $e) {
+    exit;
+}
+
+function sendMessage($chatId, $text)
+{
+    global $BOT_TOKEN;
+
+    file_get_contents(
+        "https://api.telegram.org/bot".$BOT_TOKEN."/sendMessage?".
+        http_build_query([
+            'chat_id' => $chatId,
+            'text' => $text
+        ])
+    );
+}
+
+$update = json_decode(file_get_contents("php://input"), true);
+
+if (!isset($update['message'])) {
+    exit;
+}
+
+$chatId = $update['message']['chat']['id'];
+
+$text = '';
+
+if (isset($update['message']['text'])) {
+    $text = trim($update['message']['text']);
+}
+
+if (isset($update['message']['location'])) {
+
+    $chatId = $update['message']['chat']['id'];
+
+    $stmt = $pdo->prepare(
+        "SELECT step FROM tg_sessions WHERE chat_id=?"
+    );
+
+    $stmt->execute([$chatId]);
+
+    $sess = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if ($sess && $sess['step'] == 'coordinates') {
+
+
+  $lat = $update['message']['location']['latitude'];
+  $lon = $update['message']['location']['longitude'];
+
+// Password otomatis
+  $password = 'AST' . date('His');
+
+  $pdo->prepare("
+    UPDATE tg_sessions
+    SET coordinates=?,
+        pppoe_password=?,
+        step='ont_sn'
+    WHERE chat_id=?
+  ")->execute([
+    $lat . ',' . $lon,
+    $password,
+    $chatId
+]);
+
+  sendMessage(
+    $chatId,
+    "📍 Lokasi diterima\n\nMasukkan Serial Number ONT"
+);
+
+     exit;
+
+ }
+
+}
+
+
+// =======================
+// START
+// =======================
+
+if ($text == "/start") {
+
+    $pdo->prepare(
+        "DELETE FROM tg_sessions WHERE chat_id=?"
+    )->execute([$chatId]);
+
+    sendMessage(
+    $chatId,
+    "Bot Registrasi Pelanggan\n\n".
+    "/registrasi - Registrasi pelanggan baru\n".
+    "/ubahwifi - Ganti nama dan password WiFi"
+);
+
+    exit;
+}
+
+// =======================
+// APPROVE OLT
+// =======================
+
+if (
+    preg_match(
+        '/^\/approve\s+(.+?)\s+(1\/[12])$/i',
+        $text,
+        $m
+    )
+) {
+
+    $olt = trim($m[1]);
+    $pon = trim($m[2]);
+
+    sendMessage(
+        $chatId,
+        "⏳ Menjalankan approve...\n\n".
+        "OLT : ".$olt."\n".
+        "PON : ".$pon
+    );
+
+    $cmd =
+        "php82 /data/html/hioso/approve.php ".
+        escapeshellarg($olt)." ".
+        escapeshellarg($pon)." 2>&1";
+
+    $result = trim(shell_exec($cmd));
+
+    if ($result == "SUCCESS") {
+
+        sendMessage(
+            $chatId,
+            "✅ APPROVE BERHASIL\n\n".
+            "OLT : ".$olt."\n".
+            "PON : ".$pon."\n".
+            "STATUS : CONFIG SAVED"
+        );
+
+    } else {
+
+        sendMessage(
+            $chatId,
+            "❌ APPROVE GAGAL\n\n".
+            $result
+        );
+
+    }
+
+    exit;
+}
+
+// =======================
+// REGISTRASI
+// =======================
+
+if ($text == "/registrasi") {
+
+    $stmt = $pdo->query("
+        SELECT MAX(id) as lastid
+        FROM tbl_customers
+    ");
+
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    $username = date('YmdHis');
+
+    $pdo->prepare("
+        REPLACE INTO tg_sessions
+        (chat_id, step, username)
+        VALUES (?, 'fullname', ?)
+    ")->execute([
+        $chatId,
+        $username
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Username otomatis: ".$username."\n\n".
+        "Masukkan nama lengkap:"
+    );
+
+    exit;
+}
+
+// =======================
+// UBAH WIFI
+// =======================
+
+if ($text == "/ubahwifi") {
+
+    $pdo->prepare("
+        REPLACE INTO tg_sessions
+        (chat_id, step)
+        VALUES (?, 'wifi_username')
+    ")->execute([$chatId]);
+
+    sendMessage(
+        $chatId,
+        "Masukkan username pelanggan:"
+    );
+
+    exit;
+}
+
+// =======================
+// CEK SESSION
+// =======================
+
+$stmt = $pdo->prepare(
+    "SELECT * FROM tg_sessions WHERE chat_id=?"
+);
+
+$stmt->execute([$chatId]);
+
+$session = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$session) {
+    exit;
+}
+
+
+// =======================
+// USERNAME
+// =======================
+
+if ($session['step'] == 'username') {
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET username=?,
+            step='fullname'
+        WHERE chat_id=?
+    ")->execute([
+        $text,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Masukkan nama lengkap:"
+    );
+
+    exit;
+}
+
+
+// =======================
+// FULLNAME
+// =======================
+
+if ($session && $session['step'] == 'fullname') {
+
+    try {
+
+        $stmt = $pdo->prepare("
+            UPDATE tg_sessions
+            SET fullname=?,
+                step='phone'
+            WHERE chat_id=?
+        ");
+
+        $stmt->execute([
+            $text,
+            $chatId
+        ]);
+
+        sendMessage(
+            $chatId,
+            "Masukkan nomor HP:"
+        );
+
+    } catch (Exception $e) {
+
+        sendMessage(
+            $chatId,
+            "ERROR: ".$e->getMessage()
+        );
+
+    }
+
+    exit;
+}
+
+
+// =======================
+// PHONE
+// =======================
+
+if ($session['step'] == 'phone') {
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET phone=?,
+            step='address'
+        WHERE chat_id=?
+    ")->execute([
+        $text,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Masukkan alamat lengkap pelanggan:"
+    );
+
+    exit;
+}
+
+
+// =======================
+// ADDRESS
+// =======================
+
+if ($session['step'] == 'address') {
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET address=?,
+            step='city'
+        WHERE chat_id=?
+    ")->execute([
+        $text,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Masukkan kota:"
+    );
+
+    exit;
+}
+
+// =======================
+// CITY
+// =======================
+
+if ($session['step'] == 'city') {
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET city=?,
+            step='district'
+        WHERE chat_id=?
+    ")->execute([
+        $text,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Masukkan kecamatan:"
+    );
+
+    exit;
+}
+
+// =======================
+// DISTRICT
+// =======================
+
+if ($session['step'] == 'district') {
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET district=?,
+            step='state'
+        WHERE chat_id=?
+    ")->execute([
+        $text,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Masukkan provinsi/negara:"
+    );
+
+    exit;
+}
+
+// =======================
+// STATE
+// =======================
+
+if ($session['step'] == 'state') {
+
+    try {
+
+        $pdo->prepare("
+            UPDATE tg_sessions
+            SET state=?,
+                step='zip'
+            WHERE chat_id=?
+        ")->execute([
+            $text,
+            $chatId
+        ]);
+
+        sendMessage(
+            $chatId,
+            "Masukkan kode pos:"
+        );
+
+    } catch (Exception $e) {
+
+        sendMessage(
+            $chatId,
+            "ERROR STATE: ".$e->getMessage()
+        );
+    }
+
+    exit;
+}
+
+
+// =======================
+// ZIP
+// =======================
+
+if ($session['step'] == 'zip') {
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET zip=?,
+            step='email'
+        WHERE chat_id=?
+    ")->execute([
+        $text,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Masukkan email:"
+    );
+
+    exit;
+}
+
+
+// =======================
+// EMAIL
+// =======================
+
+if ($session['step'] == 'email') {
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET email=?,
+            step='coordinates'
+        WHERE chat_id=?
+    ")->execute([
+        $text,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Silakan kirim lokasi menggunakan fitur Share Location Telegram"
+    );
+
+    exit;
+}
+
+// =======================
+// ONT SERIAL NUMBER
+// =======================
+
+if ($session['step'] == 'ont_sn') {
+
+    $sn = strtoupper(trim($text));
+
+    $acsHost = "http://45.123.142.5:7557";
+
+    $json = @file_get_contents(
+        $acsHost .
+        "/devices/?query=" .
+        urlencode(
+            '{"InternetGatewayDevice.DeviceInfo.SerialNumber._value":"' .
+            $sn .
+            '"}'
+        )
+    );
+
+    if ($json === false) {
+
+        sendMessage(
+            $chatId,
+            "❌ Gagal terhubung ke GenieACS"
+        );
+
+        exit;
+    }
+
+    $devices = json_decode($json, true);
+
+    if (!isset($devices[0])) {
+
+        sendMessage(
+            $chatId,
+            "❌ Serial Number ONT tidak ditemukan di GenieACS"
+        );
+
+        exit;
+    }
+
+    $device = $devices[0];
+
+    // Debug sementara
+    error_log("SN: ".$sn);
+    error_log("GenieACS Result: ".$json);
+
+    $vendor = "Huawei";
+
+    $model =
+        $device['InternetGatewayDevice.DeviceInfo.ProductClass']['_value']
+        ?? '-';
+
+    $firmware =
+        $device['InternetGatewayDevice.DeviceInfo.SoftwareVersion']['_value']
+        ?? '-';
+
+    $lastInform =
+        $device['_lastInform']
+        ?? '';
+
+    $tags =
+        $device['_tags']
+        ?? [];
+
+    $status = 'Offline';
+
+    if (
+        !empty($lastInform) &&
+        strtotime($lastInform) > (time() - 1800)
+    ) {
+        $status = 'Online';
+    }
+
+    // Jika sudah ada tag pelanggan
+    if (!empty($tags)) {
+
+        sendMessage(
+            $chatId,
+            "❌ ONT sudah digunakan\n\n" .
+            "SN : ".$sn."\n" .
+            "Vendor : ".$vendor."\n" .
+            "Model : ".$model."\n" .
+            "Firmware : ".$firmware."\n" .
+            "Status : ".$status."\n" .
+            "Tag : ".implode(',', $tags)
+        );
+
+        exit;
+    }
+
+    // Simpan SN ke session
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET ont_sn=?,
+            step='confirm'
+        WHERE chat_id=?
+    ")->execute([
+        $sn,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "✅ ONT siap digunakan\n\n" .
+        "SN : ".$sn."\n" .
+        "Vendor : ".$vendor."\n" .
+        "Model : ".$model."\n" .
+        "Firmware : ".$firmware."\n" .
+        "Status : ".$status."\n\n" .
+        "Ketik YA untuk menyimpan pelanggan"
+    );
+
+    exit;
+}
+
+// =======================
+// WIFI USERNAME
+// =======================
+
+if ($session['step'] == 'wifi_username') {
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET username=?,
+            step='wifi_ssid'
+        WHERE chat_id=?
+    ")->execute([
+        $text,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Masukkan SSID WiFi baru:"
+    );
+
+    exit;
+}
+
+// =======================
+// WIFI SSID
+// =======================
+
+if ($session['step'] == 'wifi_ssid') {
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET wifi_ssid=?,
+           step='wifi_password'
+        WHERE chat_id=?
+    ")->execute([
+        $text,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Masukkan Password WiFi baru:"
+    );
+
+    exit;
+}
+
+// =======================
+// WIFI PASSWORD
+// =======================
+
+if ($session['step'] == 'wifi_password') {
+
+    $pdo->prepare("
+        UPDATE tg_sessions
+        SET wifi_password=?,
+            step='wifi_confirm'
+        WHERE chat_id=?
+    ")->execute([
+        $text,
+        $chatId
+    ]);
+
+    sendMessage(
+        $chatId,
+        "Ketik YA untuk mengubah WiFi"
+    );
+
+    exit;
+}
+
+
+
+// =======================
+// CONFIRM WIFI
+// =======================
+
+if (
+$session['step'] == 'wifi_confirm' &&
+strtoupper($text) == 'YA'
+) {
+
+$acsHost = "http://45.123.142.5:7557";
+
+$json = @file_get_contents(
+    $acsHost .
+    "/devices/?query=" .
+    urlencode(
+        '{"_tags":"' . $session['username'] . '"}'
+    )
+);
+
+$devices = json_decode($json, true);
+
+if (empty($devices[0]['_id'])) {
+
+    sendMessage(
+        $chatId,
+        "❌ Pelanggan tidak ditemukan di GenieACS\n\n" .
+        "Tag : " . $session['username']
+    );
+
+    exit;
+}
+
+$deviceId = $devices[0]['_id'];
+
+$taskWifi = [
+    "name" => "setParameterValues",
+    "parameterValues" => [
+        [
+            "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+            $session['wifi_ssid'],
+            "xsd:string"
+        ],
+        [
+            "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.KeyPassphrase",
+            $session['wifi_password'],
+            "xsd:string"
+        ]
+    ]
+];
+
+file_get_contents(
+    $acsHost .
+    "/devices/" .
+    rawurlencode($deviceId) .
+    "/tasks",
+    false,
+    stream_context_create([
+        'http' => [
+            'method'  => 'POST',
+            'header'  => "Content-Type: application/json\r\n",
+            'content' => json_encode($taskWifi)
+        ]
+    ])
+);
+
+sendMessage(
+    $chatId,
+    "✅ WiFi berhasil diubah\n\n" .
+    "SSID : " . $session['wifi_ssid'] . "\n" .
+    "Password : " . $session['wifi_password']
+);
+
+$pdo->prepare(
+    "DELETE FROM tg_sessions WHERE chat_id=?"
+)->execute([$chatId]);
+
+exit;
+
+}
+
+//=======================
+//  CONFIRM REGISTRASI
+//=======================
+
+if (
+    $session['step'] == 'confirm' &&
+    strtoupper($text) == 'YA'
+) {
+
+    $stmt = $pdo->prepare("
+    INSERT INTO tbl_customers
+    (
+        username,
+        password,
+        photo,
+        pppoe_username,
+        pppoe_password,
+        fullname,
+        address,
+        city,
+        district,
+        state,
+        zip,
+        phonenumber,
+        email,
+        coordinates,
+	ont_sn,
+        balance,
+        service_type,
+        account_type,
+        auto_renewal,
+        status,
+        created_by
+    )
+    VALUES
+    (
+        ?,?,?,?,?,?,?,?,?,?,
+        ?,?,?,?,?,?,?,?,?,?,?
+    )
+    ");
+
+    $stmt->execute([
+        $session['username'],
+        $session['pppoe_password'],
+        '/user.default.jpg',
+        $session['username'],
+        $session['pppoe_password'],
+        $session['fullname'],
+        $session['address'],
+        $session['city'],
+        $session['district'],
+        $session['state'],
+        $session['zip'],
+        $session['phone'],
+        $session['email'],
+        $session['coordinates'],
+	$session['ont_sn'],
+        0,
+        'PPPoE',
+        'Personal',
+        1,
+        'Active',
+        1
+    ]);
+
+// Cari Device ID GenieACS dari Serial Number ONT
+
+$acsHost = "http://45.123.142.5:7557";
+
+$sn = $session['ont_sn'];
+
+$json = @file_get_contents(
+    $acsHost . "/devices/?query=" .
+    urlencode('{"InternetGatewayDevice.DeviceInfo.SerialNumber._value":"'.$sn.'"}')
+);
+
+$devices = json_decode($json, true);
+
+error_log("SN: ".$sn);
+error_log("GenieACS Result: ".$json);
+
+if (!empty($devices[0]['_id'])) {
+
+    $deviceId = $devices[0]['_id'];
+
+error_log("Device Found: ".$deviceId);
+
+    // PPPoE Username
+
+    $task1 = [
+        "name" => "setParameterValues",
+        "parameterValues" => [
+            [
+                "VirtualParameters.pppoeUsername",
+                $session['username'],
+                "xsd:string"
+            ],
+            [
+                "VirtualParameters.pppoePassword",
+                $session['pppoe_password'],
+                "xsd:string"
+            ]
+        ]
+    ];
+
+    $opts = [
+        'http' => [
+            'method'  => 'POST',
+            'header'  => "Content-Type: application/json\r\n",
+            'content' => json_encode($task1)
+        ]
+    ];
+
+    file_get_contents(
+        $acsHost . "/devices/" . rawurlencode($deviceId) . "/tasks",
+        false,
+        stream_context_create($opts)
+    );
+
+// Tambahkan Tag = Username
+
+$tagUrl =
+    $acsHost .
+    "/devices/" .
+    rawurlencode($deviceId) .
+    "/tags/" .
+    rawurlencode($session['username']);
+
+@file_get_contents(
+    $tagUrl,
+    false,
+    stream_context_create([
+        'http' => [
+            'method' => 'POST'
+        ]
+    ])
+);
+
+}
+
+    sendMessage(
+        $chatId,
+        "✅ Pelanggan berhasil dibuat\n\n".
+        "Nama : ".$session['fullname']."\n".
+	"Login : https://billing.asnetworksolusikita.com/login\n".
+        "Username : ".$session['username']."\n".
+        "Password : ".$session['pppoe_password']
+    );
+
+    $pdo->prepare(
+        "DELETE FROM tg_sessions WHERE chat_id=?"
+    )->execute([$chatId]);
+
+    exit;
+}
+
