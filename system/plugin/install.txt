@@ -1,0 +1,32 @@
+================================================================================
+GenieACS Manager - Installation Guide
+================================================================================
+
+INSTALLATION:
+1. Extract ZIP and copy 'plugin' folder to phpnuxbill/system/
+2. Go to Admin Panel → GenieACS Installer
+3. Enter your database credentials
+4. Click "Install Now"
+5. Done! The installer will self-destruct after installation.
+
+WHAT GETS INSTALLED:
+- 7 database tables for device management
+- UI templates for customer management  
+- Cron file for automatic device sync
+- Environment config (.env) for cron
+
+CRON SETUP (Optional):
+Add this to your crontab for auto device sync:
+*/5 * * * * php /path/to/phpnuxbill/system/cron_acs_sync.php
+
+REQUIREMENTS:
+- PHPNuxBill 3.0+
+- PHP 7.4+
+- MySQL 5.7+ / MariaDB 10.3+
+- GenieACS Server
+
+SUPPORT:
+Author: ExO
+Version: 1.0.0
+
+================================================================================

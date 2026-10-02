@@ -1,0 +1,43 @@
+{include file="sections/header.tpl"}
+
+<div class="row">
+
+    <div class="col-md-3">
+        <div class="panel panel-danger">
+            <div class="panel-heading">Open Ticket</div>
+            <div class="panel-body">
+                <h2>{$open}</h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="panel panel-warning">
+            <div class="panel-heading">Assigned</div>
+            <div class="panel-body">
+                <h2>{$assigned}</h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="panel panel-info">
+            <div class="panel-heading">Progress</div>
+            <div class="panel-body">
+                <h2>{$progress}</h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="panel panel-success">
+            <div class="panel-heading">Closed</div>
+            <div class="panel-body">
+                <h2>{$closed}</h2>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+{include file="sections/footer.tpl"}

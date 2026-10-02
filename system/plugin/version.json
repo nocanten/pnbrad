@@ -1,0 +1,24 @@
+{
+  "version": "1.9.2",
+  "release_date": "2026-05-15",
+  "changelog": [
+    "WARNING: Always backup your database before updating",
+    "REMOVED: Username & Password fields from Add/Edit Server — NBI port 7557 does not require auth",
+    "REMOVED: Refresh All Offline feature — prevents browser hang on 1000+ offline devices",
+    "REMOVED: Regex fallback in Find by Tag — prevents 30s timeout on 2500+ devices",
+    "FIX: Summon now verifies device response via _lastInform check — no more fake success",
+    "FIX: Reboot now verifies device response — returns accurate offline status",
+    "FIX: Refresh (Device Detail) pre-checks device status before running refresh steps",
+    "FIX: Force Sync online threshold reduced from 20min to 5min — matches GenieACS behavior",
+    "FIX: Device count & Statistics now use local database — no more slow API calls",
+    "UI: Offline visual state — hero red gradient, identity strip red, section headers white-to-red",
+    "UI: Section bodies show red overlay with offline badge icon when device is offline",
+    "UI: Edit/Add buttons disabled when offline, Refresh and Summon/Reboot remain active",
+    "UI: Unified error message — Device is offline or unreachable",
+    "PERF: Device count queries local DB instead of fetching all IDs from GenieACS API",
+    "PERF: Statistics computed from local DB — no API calls on Manager dashboard"
+  ],
+  "min_nuxbill_version": "2024.1",
+  "author": "ExodiaForb",
+  "repository": "https://github.com/ExodiaForb-Plugin/GenieACS-Manager"
+}

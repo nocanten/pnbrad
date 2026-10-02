@@ -1,0 +1,17 @@
+================================================================================
+GenieACS Manager - Changelog
+================================================================================
+
+Version 1.0.0 (2026-01-21)
+--------------------------
+Initial Release
+
+- Multi-server GenieACS management
+- TR-069 device monitoring
+- WiFi SSID & password management
+- Device-to-customer mapping
+- Password change history
+- Auto device sync via cron
+- One-click installer with self-cleanup
+
+================================================================================
